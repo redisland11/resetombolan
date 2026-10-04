@@ -573,16 +573,22 @@ function paintFloor() {
   }
   return c;
 }
-function paintPlaque(year) {
-  const W = 512, H = 144; const { c, x } = cv(W, H);
+const PLAQUE_FONT = 'Gloock, "Bodoni 72", Georgia, serif';
+function plaqueFontSize(labels) {
+  const { x } = cv(8, 8); x.font = `100px ${PLAQUE_FONT}`;
+  const widest = Math.max(...labels.map((l) => x.measureText(l).width));
+  return Math.min(96, Math.floor(100 * 640 / widest));
+}
+function paintPlaque(label, size = 90) {
+  const W = 768, H = 158; const { c, x } = cv(W, H);
   const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#e9cd85"); g.addColorStop(0.45, "#c79d48"); g.addColorStop(0.55, "#b88d3a"); g.addColorStop(1, "#8f6a26");
   x.fillStyle = g; x.fillRect(0, 0, W, H);
   x.strokeStyle = "rgba(80,55,15,.55)"; x.lineWidth = 3; x.strokeRect(12, 12, W - 24, H - 24);
   x.strokeStyle = "rgba(255,240,200,.35)"; x.lineWidth = 1.5; x.strokeRect(16, 16, W - 32, H - 32);
   for (const [sx, sy] of [[28, 28], [W - 28, 28], [28, H - 28], [W - 28, H - 28]]) { x.fillStyle = "#7b5a1f"; x.beginPath(); x.arc(sx, sy, 5, 0, 7); x.fill(); x.fillStyle = "rgba(255,240,200,.6)"; x.beginPath(); x.arc(sx - 1, sy - 1, 2, 0, 7); x.fill(); }
-  x.textAlign = "center"; x.textBaseline = "middle"; x.font = '98px Gloock, "Bodoni 72", Georgia, serif';
-  x.fillStyle = "rgba(255,244,210,.55)"; x.fillText(year, W / 2 + 1.5, H / 2 + 6);
-  x.fillStyle = "#4a3410"; x.fillText(year, W / 2, H / 2 + 4);
+  x.textAlign = "center"; x.textBaseline = "middle"; x.font = `${size}px ${PLAQUE_FONT}`;
+  x.fillStyle = "rgba(255,244,210,.55)"; x.fillText(label, W / 2 + 1.5, H / 2 + 6);
+  x.fillStyle = "#2a1b05"; x.fillText(label, W / 2, H / 2 + 4);
   return c;
 }
 function paintGlow() {
@@ -779,7 +785,7 @@ function buildFrame(year) {
   const pic = new THREE.Mesh(new THREE.PlaneGeometry(FW, FH), picMat); pic.position.z = 0.012; g.add(pic);
   const backing = new THREE.Mesh(new THREE.BoxGeometry(FW + 0.4, FH + 0.4, 0.02), M.walnutDark); backing.position.z = -0.005; g.add(backing);
   const plaqueMat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.75, roughness: 0.32 });
-  const pl = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.31, 0.03), [M.brass, M.brass, M.brass, M.brass, plaqueMat, M.brass]);
+  const pl = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.31, 0.03), [M.brass, M.brass, M.brass, M.brass, plaqueMat, M.brass]);
   pl.position.set(0, -FH / 2 - FB - 0.24, 0.02); pl.castShadow = true; g.add(pl);
   const ly = FH / 2 + FB + 0.24;
   g.add(bar(new THREE.Vector3(0, ly - 0.16, 0.02), new THREE.Vector3(0, ly, 0.34), 0.018, M.brass));
@@ -789,7 +795,7 @@ function buildFrame(year) {
   g.userData = { picMat, plaqueMat, sl, year, pl };
   return g;
 }
-for (const y of ["2025", "2026", "2027"]) { const f = buildFrame(y); frames.push(f); scene.add(f); }
+for (const label of ["Köln – 2025", "Budapest – 2026", "? – 2027"]) { const f = buildFrame(label); frames.push(f); scene.add(f); }
 const q2027 = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({ map: tex(paintGlow()), transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false }));
 q2027.position.set(0, -0.08, 0.03); frames[2].add(q2027);
 
@@ -1714,9 +1720,11 @@ async function boot() {
   ]);
   fontsDone = true;
   const paints = [paint2025, paint2026, paint2027];
+  const plaqueSize = plaqueFontSize(frames.map((f) => f.userData.year));
   frames.forEach((f, i) => {
     f.userData.picMat.map = tex(paints[i]()); f.userData.picMat.color.set(0xffffff); f.userData.picMat.needsUpdate = true;
-    f.userData.plaqueMat.map = tex(paintPlaque(f.userData.year)); f.userData.plaqueMat.needsUpdate = true;
+    const pt = tex(paintPlaque(f.userData.year, plaqueSize)); const pm = f.userData.plaqueMat;
+    pm.map = pt; pm.emissiveMap = pt; pm.emissive.set(0xffffff); pm.emissiveIntensity = 0.35; pm.needsUpdate = true;
   });
   refreshBalls();
   $("#boot").classList.add("gone");
