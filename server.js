@@ -70,13 +70,16 @@ const cleanName = (s) => String(s || "").replace(/[\u0000-\u001f\u007f]/g, "").t
 const ipOf = (req) => String(req.headers["cf-connecting-ip"] || String(req.headers["x-forwarded-for"] || "").split(",")[0] || req.socket.remoteAddress || "").trim();
 
 const hits = new Map();
-function limited(ip, bucket, max, windowMs) {
+function bucketOf(ip, bucket, windowMs) {
   const k = bucket + "|" + ip, now = Date.now();
   let e = hits.get(k);
   if (!e || now - e.t > windowMs) { e = { t: now, n: 0 }; hits.set(k, e); }
-  e.n++;
-  return e.n > max;
+  return e;
 }
+function limited(ip, bucket, max, windowMs) { const e = bucketOf(ip, bucket, windowMs); e.n++; return e.n > max; }
+// Räknar bara misslyckade försök, så att en grupp på samma wifi aldrig spärras av sina egna giltiga koder.
+const failedTooOften = (ip) => bucketOf(ip, "me-fail", 60000).n >= 30;
+const countFailure = (ip) => { bucketOf(ip, "me-fail", 60000).n++; };
 setInterval(() => { const now = Date.now(); for (const [k, e] of hits) if (now - e.t > 15 * 60000) hits.delete(k); }, 60000).unref();
 
 function send(res, status, obj) {
@@ -134,11 +137,12 @@ async function handle(req, res) {
 
   // En deltagare visar sin kod och får bara sitt eget resultat tillbaka.
   if (route === "me" && req.method === "POST") {
-    if (limited(ipOf(req), "me", 40, 60000)) return send(res, 429, { error: "För många försök. Vänta en minut." });
+    const ip = ipOf(req);
+    if (failedTooOften(ip)) return send(res, 429, { error: "För många felaktiga koder. Vänta en minut." });
     const body = await readJson(req);
     const code = normCode(body.code);
     const idx = code.length === 8 ? db.people.findIndex((p) => normCode(p.code) === code) : -1;
-    if (idx < 0) return send(res, 404, { error: "Koden finns inte i den här dragningen." });
+    if (idx < 0) { countFailure(ip); return send(res, 404, { error: "Koden finns inte i den här dragningen." }); }
     const p = db.people[idx];
     if (!p.joinedAt) { p.joinedAt = Date.now(); save(); broadcast(); }
     return send(res, 200, {

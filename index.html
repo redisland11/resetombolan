@@ -1331,8 +1331,9 @@ async function processState(st) {
     if (S.me && (st.lotteryId !== S.me.lotteryId || st.rev !== S.me.rev)) await checkCode(S.me.code, { silent: true, fromState: true });
     if (!S.me && st.ready && S.autoFor !== st.lotteryId) {
       S.autoFor = st.lotteryId;
-      const code = codeFromUrl() || LS.get("tombola-code");
-      if (code) await checkCode(code, { silent: true, fromState: true });
+      const fromUrl = codeFromUrl();
+      const code = fromUrl || LS.get("tombola-code");
+      if (code) await checkCode(code, { silent: !fromUrl, fromState: true });
     }
   }
   if (st.phase !== "drawn") {
@@ -1429,8 +1430,8 @@ async function checkCode(code, { silent = false, fromState = false } = {}) {
       if (S.me && normCode(S.me.code) === norm) { S.me = null; S.myWon = null; refreshBalls(); }
       if (LS.get("tombola-code") === norm) LS.del("tombola-code");
       S.codeStatus = silent ? "idle" : "bad"; S.codeMsg = "Koden finns inte i den här dragningen. Kolla stavningen eller fråga admin.";
-    } else if (e.status === 429) { S.codeStatus = "bad"; S.codeMsg = "För många försök. Vänta en minut och försök igen."; }
-    else if (!silent) { S.codeStatus = "bad"; S.codeMsg = "Kunde inte nå servern. Försök igen."; }
+    } else if (e.status === 429) { S.codeStatus = "bad"; S.codeDraft = fmtCode(norm); S.codeMsg = "För många felaktiga koder från det här nätverket. Vänta en minut och tryck Gå med."; }
+    else { S.codeStatus = silent ? "idle" : "bad"; S.codeDraft = fmtCode(norm); S.codeMsg = "Kunde inte nå servern. Tryck Gå med för att försöka igen."; }
     renderPanel(true); updateRole(); return false;
   }
 }
@@ -1508,7 +1509,7 @@ async function copyText(text, btn) {
   try { await navigator.clipboard.writeText(text); btn.textContent = "Kopierat"; setTimeout(() => { btn.textContent = label; }, 1600); }
   catch { const code = btn.parentElement.querySelector("code"); if (code) { const r = document.createRange(); r.selectNodeContents(code); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); } toast("Markerade koden. Kopiera den själv."); }
 }
-const personalLink = (code) => `${location.origin}${BASE}#${normCode(code)}`;
+const personalLink = (code) => `${location.origin}${BASE}?kod=${normCode(code)}`;
 function updateRole() {
   const map = { admin: ["Admin", false], login: ["Admin", true], player: [S.me ? "Med i dragningen" : "Deltagare", !S.me], offline: ["Ingen server", true], connecting: ["Ansluter", true] };
   let [t, quiet] = map[S.mode] || ["", true];
@@ -1533,7 +1534,7 @@ function codesList() {
         h("strong", {}, h("span", { class: "dot", style: `background:${PALETTE[i % PALETTE.length]}` }), h("span", { text: p.name })),
         h("small", {}, `${kulor(p.balls)} · ${pct(p.balls, total)}`, p.joined ? h("span", { class: "ok" }, " · inne") : null)),
       h("code", { text: p.code }),
-      h("button", { class: "btn ghost tiny", type: "button", "aria-label": `Kopiera länken till ${p.name}`, onclick: (e) => copyText(`Hej ${p.name}! Här är din lott till tombolan: ${personalLink(p.code)}`, e.currentTarget) }, "Kopiera länk"))));
+      h("button", { class: "btn ghost tiny", type: "button", "aria-label": `Kopiera länken till ${p.name}`, onclick: (e) => copyText(`Hej ${p.name}! Här är din lott till tombolan: ${personalLink(p.code)} (din kod: ${p.code})`, e.currentTarget) }, "Kopiera länk"))));
 }
 function previewRow(label, kinds) {
   return h("div", { class: "preview" }, h("span", { class: "muted small" }, label),
@@ -1705,6 +1706,11 @@ function hideResult() {
   scheduleLayout();
 }
 $("#res-close").addEventListener("click", closeResult);
+addEventListener("hashchange", () => {
+  const c = codeFromUrl();
+  if (S.mode === "player" && c && (!S.me || normCode(S.me.code) !== c)) checkCode(c);
+});
+addEventListener("pageshow", (e) => { if (e.persisted) location.reload(); });
 addEventListener("keydown", (e) => { if (e.key === "Escape" && !resultEl.hidden) closeResult(); });
 
 /* =========================================================
